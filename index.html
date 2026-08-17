@@ -4371,6 +4371,7 @@
                 });
 
                 document.querySelector(`.tab-content[data-tab="${tabName}"]`).classList.add('active');
+                try { this.syncMobileNav(); } catch (e) {}
 
                 if (tabName === 'home') {
                     this.renderHome();
@@ -7729,6 +7730,85 @@
                 });
                 const active = document.querySelector('.tab-content.active');
                 if (active && hidden.includes(active.getAttribute('data-tab'))) this.switchTab('home');
+                this.buildMobileNav();
+            },
+
+            // ══ PHONE NAVIGATION ═══════════════════════════════════════════
+            // The bottom bar is generated from the sidebar's own buttons rather
+            // than hardcoded, so icons, labels and hidden-tab settings can never
+            // drift apart from the desktop nav. Only ever visible under 780px.
+            MOBILE_PRIMARY: ['home', 'dashboard', 'expenses', 'calendar', 'checklist', 'notes'],
+
+            mobileNavTabs() {
+                return [...document.querySelectorAll('.tab-btn.nav-item[data-tab]')]
+                    .filter(b => b.style.display !== 'none')
+                    .map(b => ({
+                        tab: b.dataset.tab,
+                        label: (b.querySelector('span') || {}).textContent || b.dataset.tab,
+                        icon: (b.querySelector('svg') || {}).outerHTML || ''
+                    }));
+            },
+
+            buildMobileNav() {
+                const bar = document.getElementById('mobile-nav');
+                const sheet = document.getElementById('mobile-more-list');
+                if (!bar || !sheet) return;
+                const all = this.mobileNavTabs();
+                if (!all.length) return;
+
+                // Four quick slots: the preferred tabs that are actually
+                // visible, topped up with whatever else is on if fewer than four.
+                const byTab = Object.fromEntries(all.map(t => [t.tab, t]));
+                const primary = this.MOBILE_PRIMARY.filter(t => byTab[t]).slice(0, 4).map(t => byTab[t]);
+                all.forEach(t => { if (primary.length < 4 && !primary.includes(t)) primary.push(t); });
+
+                bar.innerHTML = primary.map(t =>
+                    `<button class="mn-btn" data-tab="${this.esc(t.tab)}" onclick="app.mobileGo('${this.esc(t.tab)}')">${t.icon}<span>${this.esc(t.label)}</span></button>`
+                ).join('') +
+                `<button class="mn-btn" id="mn-more" onclick="app.openMobileMore()">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>
+                    <span>More</span>
+                </button>`;
+
+                sheet.innerHTML = all.map(t =>
+                    `<button class="mm-item" data-tab="${this.esc(t.tab)}" onclick="app.mobileGo('${this.esc(t.tab)}')">${t.icon}<span>${this.esc(t.label)}</span></button>`
+                ).join('');
+
+                this.syncMobileNav();
+            },
+
+            syncMobileNav() {
+                const active = document.querySelector('.tab-content.active');
+                const cur = active ? active.getAttribute('data-tab') : 'home';
+                document.querySelectorAll('#mobile-nav .mn-btn[data-tab], #mobile-more-list .mm-item').forEach(b => {
+                    b.classList.toggle('active', b.dataset.tab === cur);
+                });
+                // "More" lights up when the open tab isn't one of the quick slots.
+                const more = document.getElementById('mn-more');
+                if (more) {
+                    const inBar = [...document.querySelectorAll('#mobile-nav .mn-btn[data-tab]')].some(b => b.dataset.tab === cur);
+                    more.classList.toggle('active', !inBar);
+                }
+            },
+
+            mobileGo(tab) {
+                this.closeMobileMore();
+                this.switchTab(tab);
+                // A phone keeps its scroll position between tabs otherwise, which
+                // lands you halfway down a page you just opened.
+                try { window.scrollTo({ top: 0, behavior: 'instant' }); } catch (e) { window.scrollTo(0, 0); }
+            },
+
+            openMobileMore() {
+                const s = document.getElementById('mobile-more-sheet');
+                if (s) s.classList.add('open');
+            },
+
+            closeMobileMore(ev) {
+                // Only the backdrop closes it; taps inside the panel shouldn't.
+                if (ev && ev.target && ev.target.closest && ev.target.closest('.mm-panel')) return;
+                const s = document.getElementById('mobile-more-sheet');
+                if (s) s.classList.remove('open');
             },
 
             // ══ Update check ══
@@ -10055,7 +10135,7 @@
 
                 if (rowCount === 0) { await this.cloudMigrateOffer(map); return; }
 
-                // Safety rail: if the cloud rows hold nothing meaningful while
+                // Safety rail 1: if the cloud rows hold nothing meaningful while
                 // this device has real data (e.g. an empty device signed in
                 // first), NEVER let the empty cloud copy win — upload this
                 // device's data instead.
@@ -10068,12 +10148,28 @@
                 }
 
                 let changed = false;
+                const rescued = [];
                 tables.forEach(t => {
                     if (this._cloudDirty.has(t)) return;   // unsynced local edits win, then push
                     if (!(t in rows)) return;
+                    // Safety rail 2, per section: rail 1 only compares the account
+                    // as a whole, so a single empty section could still wipe its
+                    // local counterpart while the other twelve looked healthy —
+                    // which is exactly how the checklist/goals data was lost once.
+                    // An empty cloud section never overwrites a local section that
+                    // has content; the local one wins and is queued for upload.
+                    if (!this.sectionHasContent(rows[t]) && this.sectionHasContent(this.cloudSectionData(t, map))) {
+                        this._cloudDirty.add(t);
+                        rescued.push(t);
+                        return;
+                    }
                     Object.keys(rows[t]).forEach(k => { this.data[k] = rows[t][k]; });
                     changed = true;
                 });
+                if (rescued.length) {
+                    this.cloudPersistDirty();
+                    console.warn('Cloud sections were empty; kept this device\'s copy:', rescued.join(', '));
+                }
                 const map2 = this.cloudSectionKeys();
                 Object.keys(map2).forEach(t => { this._cloudSnapshot[t] = JSON.stringify(this.cloudSectionData(t, map2)); });
                 // Dirty sections still differ from their (pre-pull) snapshot on
@@ -10081,6 +10177,20 @@
                 if (changed) this.saveData();
                 if (this._cloudDirty.size) await this.cloudFlush();
                 else this.cloudSetStatus('ok', 'Synced');
+            },
+
+            // Does one section's payload carry anything at all? Anything that
+            // isn't an empty array, an empty object, null/undefined or an empty
+            // string counts as content. Used per section so a single blank
+            // table can't quietly erase its local counterpart.
+            sectionHasContent(sec) {
+                if (!sec || typeof sec !== 'object') return false;
+                return Object.values(sec).some(v => {
+                    if (v == null || v === '' || v === false) return false;
+                    if (Array.isArray(v)) return v.length > 0;
+                    if (typeof v === 'object') return Object.keys(v).length > 0;
+                    return true;
+                });
             },
 
             // Does a data object contain anything a user would miss? Used to
@@ -10973,5 +11083,217 @@
     </div>
 </div>
 <div id="toast-container"></div>
+
+<!-- Phone navigation. Empty until buildMobileNav() fills it from the sidebar's
+     own tabs, so hidden tabs (Settings → Navigation) stay hidden here too.
+     Never visible above 780px. -->
+<nav id="mobile-nav" aria-label="Main"></nav>
+<div id="mobile-more-sheet" onclick="app.closeMobileMore(event)">
+    <div class="mm-panel" onclick="event.stopPropagation()">
+        <div class="mm-grip"></div>
+        <div class="mm-title">All tabs</div>
+        <div class="mm-list" id="mobile-more-list"></div>
+    </div>
+</div>
+
+<!--
+  ══ PHONE LAYOUT ══════════════════════════════════════════════════════════
+  Last stylesheet in the document on purpose: the app's desktop rules are
+  spread over several <style> blocks (including one inside <body>), so being
+  last is what lets these win without fighting specificity everywhere.
+
+  EVERYTHING here is inside a max-width media query, so the Windows desktop
+  app and any wide browser window render exactly as they did before.
+
+  The desktop app is built as one fixed, non-scrolling screen with scrolling
+  panels inside it. That is the right shape for a maximized window and the
+  wrong one for a phone, so the phone rules do four things: let the page
+  itself scroll, collapse every multi-column board to a single column, let
+  wide tables scroll sideways inside their own box, and swap the 88px icon
+  rail for a bottom tab bar.
+
+  !important appears only where it must beat an inline style written by the
+  free-grid layout engine (applyFreeBoard sets el.style.gridArea).
+-->
+<style>
+    #mobile-nav, #mobile-more-sheet { display:none; }
+
+    @media (max-width: 780px) {
+        /* ── 1. Let the page scroll ──────────────────────────────────────
+           body/.app-shell are height:100vh;overflow:hidden on desktop, which
+           on a phone silently makes anything past the first screen
+           unreachable. */
+        html, body { height:auto; min-height:100%; overflow-x:hidden; overflow-y:auto; -webkit-text-size-adjust:100%; }
+        .app-shell { height:auto; min-height:100vh; overflow:visible; }
+        .shell-row { flex-direction:column; overflow:visible; min-height:0; }
+        .app-body, .content-area { overflow:visible; min-height:0; }
+        #money-diary-module { overflow:visible; }
+
+        /* Tabs that opt into a fixed-height flex column on desktop must grow
+           naturally instead, or their content is clipped with no way to reach it. */
+        .tab-content[data-tab="expenses"].active,
+        .tab-content[data-tab="income"].active,
+        .tab-content[data-tab="notes"].active,
+        .tab-content[data-tab="whiteboard"].active {
+            height:auto; overflow:visible;
+        }
+
+        /* ── 2. Chrome: tighter bars, room for the bottom nav ─────────── */
+        .topbar { margin:8px 10px 0; padding:10px 12px; gap:10px; border-radius:14px; }
+        .topbar-brand { font-size:13px; letter-spacing:0.5px; }
+        .topbar-mark { width:32px; height:32px; border-radius:10px; font-size:11px; }
+        .topbar-actions { gap:8px; }
+        #view-toggle .pill-option { padding:5px 10px; font-size:12px; }
+        .rail { display:none; }
+        .content-area > .tab-content { padding:12px 10px 104px; }
+        .page-header { padding:14px 16px 12px; margin-bottom:12px; border-radius:12px; flex-wrap:wrap; gap:10px; }
+        .page-header h2 { font-size:19px; }
+
+        /* ── 3. Every multi-column board becomes one column ─────────────
+           Including the saved free-grid geometry, which is stored in desktop
+           pixel coordinates and is meaningless at this width. */
+        .home-grid {
+            grid-template-columns:1fr !important;
+            grid-template-areas:none !important;
+            gap:12px;
+        }
+        .dash-grid, .spend-grid, .more-sections, .notes-layout, .mood-grid {
+            grid-template-columns:1fr !important;
+            gap:12px;
+        }
+        .home-grid > *, .dash-grid > *, .spend-grid > *, .more-sections > *,
+        .free-grid > [data-lm-key] {
+            grid-area:auto !important;
+            grid-column:auto !important;
+            grid-row:auto !important;
+            order:0 !important;
+        }
+        .notes-sidebar { max-height:260px; }
+        /* The clock is sized for a 1600px window. */
+        .home-clock, [data-home-layout="tower"] .home-clock { font-size:56px !important; letter-spacing:-2px !important; }
+        .home-clock-sec, [data-home-layout="tower"] .home-clock-sec { font-size:22px !important; }
+        [data-home-layout="tower"] .home-clock-card { padding:20px 14px 16px; }
+
+        /* Card internals: stop fixed heights from cropping content */
+        .home-card, .stat-card, .chart-container, .more-section, .wk-card, .monthly-total {
+            border-radius:14px; min-width:0;
+        }
+        .chart-container { height:auto; min-height:240px; }
+        .chart-container canvas { max-height:260px; }
+
+        /* ── 4. Wide tables scroll sideways in their own box ───────────── */
+        .table-scroll-container, .fin-group-body, .fin-group-body.fin-scroll-lg,
+        #goals-pool-list, .tab-content[data-tab="checklist"] .table-scroll-container {
+            max-height:none !important;
+            overflow-x:auto;
+            -webkit-overflow-scrolling:touch;
+            margin-left:0; margin-right:0;
+        }
+        .table-scroll-container table, .fin-group-body table { min-width:520px; }
+        #checklist-grid { min-width:640px; }
+
+        /* ── 5. Touch targets and forms ─────────────────────────────────
+           16px inputs stop iOS Safari zooming in on focus. */
+        button, .btn-primary, .btn-secondary, .override-btn, .add-entry-btn, .fin-pill {
+            min-height:40px;
+        }
+        /* 16px minimum: below anything under 16px, iOS Safari zooms the page in
+           on focus and never zooms back out. Many inputs are styled by
+           container selectors (.fin-search input etc.) that outrank anything
+           written here, so this floor is enforced rather than merely declared.
+           Phone-only, and every container scrolls now, so the taller fields
+           can't crop anything. */
+        input, select, textarea, .form-control { font-size:16px !important; }
+        .fin-toolbar { padding:12px; gap:8px; }
+        .fin-toolbar > * { flex:1 1 140px; min-width:0; }
+        /* Filter pills are a single nowrap row that would run off the edge;
+           let the row itself scroll rather than clip. */
+        .fin-pills, #theme-mode-toggle, .subs-summary {
+            max-width:100%; overflow-x:auto; -webkit-overflow-scrolling:touch;
+        }
+
+        /* The Home hero is a nowrap two-column flex; its right-hand date and
+           freshness line get pushed off screen. Stack it instead. */
+        .home-hero { flex-wrap:wrap; gap:10px; padding:16px 18px; }
+        .home-greeting { font-size:20px; }
+        .home-hero-right { text-align:left; flex-shrink:1; min-width:0; }
+        .home-date, .home-briefing-status { white-space:normal; }
+        .home-briefing-status { justify-content:flex-start; }
+
+        /* Whiteboard: the fixed 1600×1000 board stays pannable inside a
+           viewport-sized frame now that the tab is no longer a fixed-height flex. */
+        .wb-scroll { height:62vh; min-height:320px; flex:0 0 auto; }
+        .wb-toolbar { flex-wrap:wrap; gap:6px; }
+
+        /* ── 6. Overlays sized for a small screen ───────────────────────
+           Modals scroll internally; the desktop versions assume they always fit. */
+        .modal {
+            width:calc(100vw - 20px); max-width:none;
+            max-height:86vh; overflow-y:auto; border-radius:18px;
+        }
+        #settings-drawer { width:100vw; max-width:100vw; border-radius:0; }
+        .login-card { padding:28px 22px 24px; }
+        /* Card drag-to-rearrange is a pointer/desktop feature. */
+        .sd-section[data-sd="layout"] { display:none; }
+        #tour-overlay { display:none !important; }
+
+        /* ── 7. Bottom tab bar ──────────────────────────────────────────
+           Sits above the iOS home indicator via safe-area inset. */
+        #mobile-nav {
+            display:flex; position:fixed; left:0; right:0; bottom:0; z-index:900;
+            padding:6px 4px calc(6px + env(safe-area-inset-bottom, 0px));
+            background:var(--surface); border-top:1px solid var(--border);
+            box-shadow:0 -6px 20px rgba(var(--shadow-rgb),0.10);
+        }
+        .mn-btn {
+            flex:1 1 0; min-width:0; min-height:52px;
+            display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px;
+            background:none; border:none; cursor:pointer; padding:4px 2px;
+            color:var(--text-muted); font-size:10px; font-weight:600;
+            border-radius:12px;
+        }
+        .mn-btn svg { width:21px; height:21px; stroke-width:2; }
+        .mn-btn span {
+            max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+        }
+        .mn-btn.active { color:var(--accent-dark); background:var(--accent-soft); }
+
+        /* "All tabs" sheet */
+        #mobile-more-sheet {
+            display:none; position:fixed; inset:0; z-index:950;
+            background:var(--veil); align-items:flex-end;
+        }
+        #mobile-more-sheet.open { display:flex; }
+        .mm-panel {
+            width:100%; max-height:74vh; overflow-y:auto;
+            background:var(--surface); border-top:1px solid var(--border);
+            border-radius:20px 20px 0 0;
+            padding:10px 14px calc(20px + env(safe-area-inset-bottom, 0px));
+        }
+        .mm-grip {
+            width:38px; height:4px; border-radius:2px; margin:0 auto 12px;
+            background:var(--border-2);
+        }
+        .mm-title {
+            font-size:11px; font-weight:800; letter-spacing:0.08em; text-transform:uppercase;
+            color:var(--text-muted); margin-bottom:10px;
+        }
+        .mm-list { display:grid; grid-template-columns:repeat(3, 1fr); gap:8px; }
+        .mm-item {
+            display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px;
+            min-height:76px; padding:10px 6px; cursor:pointer;
+            background:var(--surface-alt); border:1px solid var(--border); border-radius:14px;
+            color:var(--text-2); font-size:11px; font-weight:600; text-align:center;
+        }
+        .mm-item svg { width:20px; height:20px; stroke-width:2; }
+        .mm-item.active { background:var(--accent-soft); border-color:var(--accent-border); color:var(--accent-dark); }
+    }
+
+    /* Phones in landscape: the bar would eat too much of a short screen. */
+    @media (max-width: 780px) and (max-height: 460px) {
+        #mobile-nav { position:static; }
+        .content-area > .tab-content { padding-bottom:16px; }
+    }
+</style>
 </body>
 </html>
