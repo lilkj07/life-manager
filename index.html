@@ -2549,6 +2549,11 @@
             </style>
 
                     <div class="tab-content active" data-tab="home">
+                        <!-- Phone-only launcher: on a phone, Home is a hub for
+                             quick capture + jumping into a tab, not the desktop
+                             briefing. Filled by buildPhoneLauncher(); kept
+                             display:none at desktop widths. -->
+                        <div id="phone-launcher"></div>
                         <div class="home-hero">
                             <div>
                                 <div class="home-greeting" id="home-greeting">Good morning.</div>
@@ -7734,11 +7739,11 @@
             },
 
             // ══ PHONE NAVIGATION ═══════════════════════════════════════════
-            // The bottom bar is generated from the sidebar's own buttons rather
-            // than hardcoded, so icons, labels and hidden-tab settings can never
+            // The phone's Home is a launcher hub: quick-capture actions plus a
+            // tile for every tab. The bottom bar is just Home + Settings. Tiles
+            // are generated from the sidebar's own buttons rather than
+            // hardcoded, so icons, labels and hidden-tab settings can never
             // drift apart from the desktop nav. Only ever visible under 780px.
-            MOBILE_PRIMARY: ['home', 'dashboard', 'expenses', 'calendar', 'checklist', 'notes'],
-
             mobileNavTabs() {
                 return [...document.querySelectorAll('.tab-btn.nav-item[data-tab]')]
                     .filter(b => b.style.display !== 'none')
@@ -7751,48 +7756,73 @@
 
             buildMobileNav() {
                 const bar = document.getElementById('mobile-nav');
-                const sheet = document.getElementById('mobile-more-list');
-                if (!bar || !sheet) return;
-                const all = this.mobileNavTabs();
-                if (!all.length) return;
-
-                // Four quick slots: the preferred tabs that are actually
-                // visible, topped up with whatever else is on if fewer than four.
-                const byTab = Object.fromEntries(all.map(t => [t.tab, t]));
-                const primary = this.MOBILE_PRIMARY.filter(t => byTab[t]).slice(0, 4).map(t => byTab[t]);
-                all.forEach(t => { if (primary.length < 4 && !primary.includes(t)) primary.push(t); });
-
-                bar.innerHTML = primary.map(t =>
-                    `<button class="mn-btn" data-tab="${this.esc(t.tab)}" onclick="app.mobileGo('${this.esc(t.tab)}')">${t.icon}<span>${this.esc(t.label)}</span></button>`
-                ).join('') +
-                `<button class="mn-btn" id="mn-more" onclick="app.openMobileMore()">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>
-                    <span>More</span>
-                </button>`;
-
-                sheet.innerHTML = all.map(t =>
-                    `<button class="mm-item" data-tab="${this.esc(t.tab)}" onclick="app.mobileGo('${this.esc(t.tab)}')">${t.icon}<span>${this.esc(t.label)}</span></button>`
-                ).join('');
-
+                if (bar) {
+                    bar.innerHTML =
+                        `<button class="mn-btn" data-tab="home" onclick="app.mobileGo('home')">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+                            <span>Home</span>
+                        </button>
+                        <button class="mn-btn" id="mn-settings" onclick="app.openThemeModal()">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                            <span>Settings</span>
+                        </button>`;
+                }
+                this.buildPhoneLauncher();
                 this.syncMobileNav();
+            },
+
+            buildPhoneLauncher() {
+                const el = document.getElementById('phone-launcher');
+                if (!el) return;
+                const hour = new Date().getHours();
+                const greeting = hour < 12 ? 'Good morning.' : hour < 18 ? 'Good afternoon.' : 'Good evening.';
+                const date = new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' });
+                const tabs = this.mobileNavTabs().filter(t => t.tab !== 'home');
+                el.innerHTML =
+                    `<div class="pl-head">
+                        <div class="pl-greeting">${greeting}</div>
+                        <div class="pl-date">${this.esc(date)}</div>
+                    </div>
+                    <div class="pl-quick">
+                        <button class="pl-quick-btn" onclick="app.quickLogExpense()">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                            <span>Log expense</span>
+                        </button>
+                        <button class="pl-quick-btn" onclick="app.quickNewNote()">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>
+                            <span>Quick note</span>
+                        </button>
+                    </div>
+                    <div class="pl-label">All tabs</div>
+                    <div class="pl-grid">` +
+                    tabs.map(t =>
+                        `<button class="pl-tile" data-tab="${this.esc(t.tab)}" onclick="app.mobileGo('${this.esc(t.tab)}')">${t.icon}<span>${this.esc(t.label)}</span></button>`
+                    ).join('') +
+                    `</div>`;
+            },
+
+            quickLogExpense() {
+                this.switchTab('expenses');
+                try { window.scrollTo(0, 0); } catch (e) {}
+                setTimeout(() => this.openAddEntryModal('expense'), 60);
+            },
+
+            quickNewNote() {
+                this.switchTab('notes');
+                try { window.scrollTo(0, 0); } catch (e) {}
+                setTimeout(() => this.newNote(), 60);
             },
 
             syncMobileNav() {
                 const active = document.querySelector('.tab-content.active');
                 const cur = active ? active.getAttribute('data-tab') : 'home';
-                document.querySelectorAll('#mobile-nav .mn-btn[data-tab], #mobile-more-list .mm-item').forEach(b => {
-                    b.classList.toggle('active', b.dataset.tab === cur);
-                });
-                // "More" lights up when the open tab isn't one of the quick slots.
-                const more = document.getElementById('mn-more');
-                if (more) {
-                    const inBar = [...document.querySelectorAll('#mobile-nav .mn-btn[data-tab]')].some(b => b.dataset.tab === cur);
-                    more.classList.toggle('active', !inBar);
-                }
+                const homeBtn = document.querySelector('#mobile-nav .mn-btn[data-tab="home"]');
+                if (homeBtn) homeBtn.classList.toggle('active', cur === 'home');
             },
 
             mobileGo(tab) {
                 this.closeMobileMore();
+                if (tab === 'home') this.buildPhoneLauncher();  // greeting/date stay current
                 this.switchTab(tab);
                 // A phone keeps its scroll position between tabs otherwise, which
                 // lands you halfway down a page you just opened.
@@ -11125,7 +11155,7 @@
   free-grid layout engine (applyFreeBoard sets el.style.gridArea).
 -->
 <style>
-    #mobile-nav, #mobile-more-sheet { display:none; }
+    #mobile-nav, #mobile-more-sheet, #phone-launcher { display:none; }
 
     @media (max-width: 780px) {
         /* ── 1. Let the page scroll ──────────────────────────────────────
@@ -11219,6 +11249,56 @@
 
         /* Top bar hugs the notch on installed-PWA phones */
         .topbar { margin-top:calc(8px + env(safe-area-inset-top, 0px)); }
+
+        /* ── 3c. Phone Home = launcher hub ──────────────────────────────
+           Outside-the-house use is quick capture and quick jumps, so the
+           phone's Home swaps the desktop briefing for two big capture
+           buttons and a tile per tab. Desktop keeps its briefing: the
+           launcher div only exists visually inside this media query. */
+        .tab-content[data-tab="home"] .home-hero,
+        .tab-content[data-tab="home"] .home-grid { display:none; }
+        #phone-launcher { display:block; }
+        .pl-head { padding:10px 4px 16px; }
+        .pl-greeting { font-size:22px; font-weight:700; letter-spacing:-0.3px; color:var(--text); }
+        .pl-date { font-size:13px; color:var(--text-muted); margin-top:3px; }
+        .pl-quick { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:18px; }
+        .pl-quick-btn {
+            display:flex; align-items:center; justify-content:center; gap:8px;
+            min-height:56px; padding:12px; cursor:pointer;
+            background:var(--accent); color:var(--on-accent);
+            border:none; border-radius:14px; font-size:14px; font-weight:700;
+            box-shadow:0 6px 18px rgba(var(--accent-rgb),0.25);
+        }
+        .pl-quick-btn svg { width:19px; height:19px; flex-shrink:0; }
+        .pl-quick-btn:active { filter:brightness(1.15); }
+        .pl-label {
+            font-size:11px; font-weight:800; letter-spacing:0.08em; text-transform:uppercase;
+            color:var(--text-muted); margin:0 4px 8px;
+        }
+        .pl-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+        .pl-tile {
+            display:flex; align-items:center; gap:10px; text-align:left;
+            min-height:56px; padding:12px 14px; cursor:pointer;
+            background:var(--surface); border:1px solid var(--border); border-radius:14px;
+            color:var(--text-2); font-size:13px; font-weight:600;
+            box-shadow:0 2px 8px rgba(var(--shadow-rgb),0.05);
+        }
+        .pl-tile svg { width:20px; height:20px; flex-shrink:0; color:var(--accent-dark); }
+        .pl-tile span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+        .pl-tile:active { background:var(--accent-soft); border-color:var(--accent-border); }
+
+        /* ── 3d. Type scale: numbers sized for 170–355px cards ──────────
+           The desktop sizes assume cards 2–3× wider; long currency amounts
+           at 26–28px overflow these tiles. */
+        .page-title { font-size:18px; }
+        /* The desktop sizes these with a heavier selector (and the monthly
+           total inline), so matching force is needed here. */
+        .stat-value,
+        .tab-content[data-tab="dashboard"] .stat-card .stat-value { font-size:19px !important; overflow-wrap:anywhere; }
+        #total-spent-amount { font-size:22px !important; overflow-wrap:anywhere; }
+        .mood-stat-value { font-size:18px; }
+        .home-greeting { font-size:18px; }
+        .stat-card h3 { letter-spacing:0.02em; }
 
         /* ── 4. Wide tables scroll sideways in their own box ───────────── */
         .table-scroll-container, .fin-group-body, .fin-group-body.fin-scroll-lg,
