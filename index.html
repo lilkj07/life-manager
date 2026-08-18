@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://api.frankfurter.app https://api.frankfurter.dev https://isouyyhellclgqutrjsr.supabase.co https://api.open-meteo.com https://geocoding-api.open-meteo.com https://ipapi.co; font-src 'self';">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Life Manager</title>
     <!-- PWA: lets the browser version install to a phone/Mac home screen.
          Harmless in Electron, which ignores all of it. -->
@@ -8403,13 +8403,22 @@
             _dragCard: null,
 
             toggleLayoutEdit() {
+                if (this.isPhoneLayout()) { this.showToast('Card layouts are edited on the desktop — the phone arranges itself'); return; }
                 this.layoutEditing = !this.layoutEditing;
                 document.body.classList.toggle('layout-editing', this.layoutEditing);
+            },
+
+            // The phone has its own fixed presentation (see the PHONE LAYOUT
+            // stylesheet): it neither reads nor writes the desktop's saved card
+            // layouts. Editing them from a phone once scrambled the desktop.
+            isPhoneLayout() {
+                try { return window.matchMedia('(max-width: 780px)').matches; } catch (e) { return false; }
             },
 
             // Settings → Edit layout: close the panel and start editing on a
             // customizable tab; the floating pill is the way out.
             startLayoutEditFromSettings() {
+                if (this.isPhoneLayout()) { this.showToast('Card layouts are edited on the desktop — the phone arranges itself'); return; }
                 this.closeThemeModal();
                 if (!this.layoutEditing) this.toggleLayoutEdit();
                 const active = document.querySelector('.tab-content.active');
@@ -8620,7 +8629,7 @@
                 if (!grid || this._boardBound[name]) return;
                 this._boardBound[name] = true;
                 grid.addEventListener('pointerdown', (e) => {
-                    if (!this.layoutEditing || e.button !== 0) return;
+                    if (!this.layoutEditing || this.isPhoneLayout() || e.button !== 0) return;
                     const card = e.target.closest('[data-lm-key]');
                     if (!card || !grid.contains(card) || card.parentElement !== grid) return;
                     // First grab converts the default layout into grid coordinates
@@ -11178,8 +11187,38 @@
         .home-card, .stat-card, .chart-container, .more-section, .wk-card, .monthly-total {
             border-radius:14px; min-width:0;
         }
-        .chart-container { height:auto; min-height:240px; }
-        .chart-container canvas { max-height:260px; }
+        .chart-container { height:auto; min-height:220px; }
+        .chart-container canvas { max-height:240px; }
+
+        /* ── 3b. The phone's own presentation ───────────────────────────
+           The desktop's saved drag-layouts (homeGrid/customLayouts) are for a
+           1600px board and are ignored entirely at this width — the phone has
+           one fixed, deliberate arrangement instead, and (enforced in JS) can
+           never edit or save the desktop's. */
+        #layout-edit-pill { display:none !important; }
+
+        /* Home reads top-to-bottom in phone priority order: time & greeting,
+           today's plan, mood check-in, money, subscriptions, news. Grid `order`
+           beats the DOM order the desktop columns were written in. */
+        .home-grid > .home-area-clock   { order:1 !important; }
+        .home-grid > .home-area-agenda  { order:2 !important; }
+        .home-grid > .home-area-mood    { order:3 !important; }
+        .home-grid > .home-area-finance { order:4 !important; }
+        .home-grid > .home-area-subs    { order:5 !important; }
+        .home-grid > .home-area-news    { order:6 !important; }
+        .home-card { padding:14px 16px; }
+        .home-card-head { margin-bottom:10px; }
+        .home-clock-card { text-align:center; }
+
+        /* Dashboard: the three stat tiles pair up two across (they're short),
+           charts get the full width. */
+        .dash-grid { grid-template-columns:1fr 1fr !important; }
+        .dash-grid > .stat-card { grid-column:auto !important; padding:14px 12px; }
+        .dash-grid > .chart-container { grid-column:1 / -1 !important; }
+        .stat-card h3 { font-size:11px; }
+
+        /* Top bar hugs the notch on installed-PWA phones */
+        .topbar { margin-top:calc(8px + env(safe-area-inset-top, 0px)); }
 
         /* ── 4. Wide tables scroll sideways in their own box ───────────── */
         .table-scroll-container, .fin-group-body, .fin-group-body.fin-scroll-lg,
