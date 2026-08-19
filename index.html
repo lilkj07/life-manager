@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://api.frankfurter.app https://api.frankfurter.dev https://isouyyhellclgqutrjsr.supabase.co https://api.open-meteo.com https://geocoding-api.open-meteo.com https://ipapi.co; font-src 'self';">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://api.frankfurter.app https://api.frankfurter.dev https://isouyyhellclgqutrjsr.supabase.co https://api.open-meteo.com https://geocoding-api.open-meteo.com https://ipapi.co https://api.rss2json.com; font-src 'self';">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Life Manager</title>
     <!-- PWA: lets the browser version install to a phone/Mac home screen.
@@ -211,10 +211,13 @@
 
         /* ── Icon rail (floating, icon-only nav) ── */
         .rail {
-            width:88px; min-width:88px; flex-shrink:0;
-            display:flex; flex-direction:column; align-items:center; gap:12px;
+            /* Sized by its content: a fixed 88px box was narrower than the nav
+               card itself, which then overflowed and re-centered ~12px from the
+               edge — visibly out of line with the topbar's 24px margin. */
+            width:auto; min-width:0; flex-shrink:0;
+            display:flex; flex-direction:column; align-items:stretch; gap:12px;
             /* 24px left inset lines the rail card up with the topbar card above */
-            padding:14px 8px 14px 24px; z-index:100;
+            padding:14px 12px 14px 24px; z-index:100;
         }
         /* With every tab switched on the rail is taller than a short window, so it
            scrolls. The hover labels are position:fixed (placed by JS) precisely so
@@ -553,22 +556,7 @@
             align-items:start; margin-bottom:30px;
         }
         .spend-grid > .chart-container { grid-column:span 3; }
-        .spend-grid > [data-lm-key="categories"],
         .spend-grid > [data-lm-key="trend"] { grid-column:span 6; }
-
-        /* Category Totals tiles: spend-rank badge + selected state */
-        .cat-rank {
-            display:inline-flex; align-items:center; justify-content:center;
-            min-width:22px; height:22px; border-radius:999px;
-            background:var(--accent-soft); color:var(--accent-dark);
-            font-size:12px; font-weight:700;
-        }
-        .cat-tile { transition:border-color 0.15s, box-shadow 0.15s; }
-        .cat-tile:hover { border-color:var(--accent) !important; }
-        .cat-tile.trend-active {
-            border-color:var(--accent) !important;
-            box-shadow:0 0 0 1px var(--accent);
-        }
 
         .chart-container {
             background: var(--surface-2);
@@ -2393,11 +2381,14 @@
                 body.layout-editing .tab-content.active *, body.layout-editing .tab-content.active > * { animation:none !important; }
 
                 /* ── Free grid boards (Home + Dashboard): move & resize anywhere,
-                   snapped to 12 columns so the layout always stays connected. */
+                   snapped to 24 columns so the layout always stays connected.
+                   (Was 12 cols / 64px rows; doubled so each resize step is half
+                   as big. With the 16px gap, 2 new units + 1 gap = 1 old unit,
+                   so layouts migrated by doubling keep their exact size.) */
                 .home-grid.free-grid, .dash-grid.free-grid, .spend-grid.free-grid, .more-sections.free-grid {
-                    grid-template-columns:repeat(12, 1fr);
+                    grid-template-columns:repeat(24, 1fr);
                     grid-template-areas:none;
-                    grid-auto-rows:64px;
+                    grid-auto-rows:24px;
                     align-items:stretch;
                     gap:16px;
                 }
@@ -2408,16 +2399,6 @@
                 /* Charts flex to their card's size instead of a fixed 300px */
                 .dash-grid.free-grid .chart-container, .spend-grid.free-grid .chart-container { display:flex; flex-direction:column; overflow:hidden; }
                 .dash-grid.free-grid .chart-container > div[style*="height"], .spend-grid.free-grid .chart-container > div[style*="height"] { height:auto !important; flex:1; min-height:90px; }
-                /* Category Totals holds tiles, not a canvas: pin the title and let
-                   only the tile area scroll, so the card never jiggles as a whole */
-                .spend-grid.free-grid [data-lm-key="categories"] {
-                    display:flex; flex-direction:column; overflow:hidden; padding:14px 16px;
-                }
-                .spend-grid.free-grid [data-lm-key="categories"] .chart-title { flex-shrink:0; margin-bottom:10px; }
-                .spend-grid.free-grid [data-lm-key="categories"] #category-cards {
-                    flex:1; min-height:0; overflow-y:auto; align-content:flex-start; scrollbar-width:none;
-                }
-                .spend-grid.free-grid [data-lm-key="categories"] #category-cards::-webkit-scrollbar { display:none; }
                 /* Compact stat cards: less padding + tighter spacing so they can shrink small,
                    but larger type so the text fills the card */
                 .tab-content[data-tab="dashboard"] .stat-card { padding:14px 16px; }
@@ -2901,11 +2882,6 @@
                         </div>
 
                         <div class="spend-grid">
-                            <div class="chart-container" data-lm-group="spending" data-lm-key="categories">
-                                <div class="chart-title">Category Totals</div>
-                                <div id="category-cards" style="display:flex;flex-wrap:wrap;gap:12px;">
-                                </div>
-                            </div>
                             <div class="chart-container" data-lm-group="spending" data-lm-key="bar">
                                 <div class="chart-title">Category Spending</div>
                                 <div style="height:360px; position: relative;">
@@ -3931,6 +3907,9 @@
                 theme: 'ink',
                 design: 'ink',
                 customLayouts: {},
+                // Free-grid unit scale. 2 = the 24-column grid; layouts saved
+                // on the old 12-column grid (no flag) are doubled once on load.
+                gridScale: 2,
                 accounts: [
                     { name: 'Thai Bank', currency: 'THB' },
                     { name: 'Thai Cash', currency: 'THB' },
@@ -5461,43 +5440,48 @@
                 const totalEl = document.getElementById('total-spent-amount');
                 if (totalEl) totalEl.textContent = this.formatCurrencyLabel(total);
 
-                // cards: ranked by spend, click one to show it in the comparison chart
-                const cards = document.getElementById('category-cards');
-                if (cards) {
-                    cards.innerHTML = '';
-                    categories.forEach((cat,i) => {
-                        const col = this.categoryColor(cat);
-                        const pct = total ? Math.round((catMap[cat] / total) * 100) : 0;
-                        const card = document.createElement('div');
-                        card.className = 'cat-tile';
-                        card.dataset.cat = cat;
-                        card.style.background = app.cssVar('--surface');
-                        card.style.border = '1px solid var(--border-2)';
-                        card.style.borderRadius = '10px';
-                        card.style.padding = '12px';
-                        card.style.minWidth = '180px';
-                        card.style.flex = '1 1 180px';
-                        card.style.cursor = 'pointer';
-                        card.title = `Show ${cat} in the comparison chart`;
-                        card.onclick = () => app.selectTrendCategory(cat);
-                        card.innerHTML = `
-                            <div style="display:flex;align-items:center;gap:8px;">
-                                <span class="cat-rank" style="background:${this.hexToRgba(col, 0.15)};color:${col};">${i+1}</span>
-                                <span style="font-weight:700;color:var(--text)">${this.esc(cat)}</span>
-                                <span style="margin-left:auto;font-size:11px;font-weight:700;color:var(--text-muted);">${pct}%</span>
-                            </div>
-                            <div style="font-size:18px;font-weight:700;color:${col};margin-top:8px">${this.formatCurrencyLabel(catMap[cat])}</div>
-                            <div style="height:4px;border-radius:999px;background:var(--surface-2);margin-top:8px;overflow:hidden;">
-                                <div style="width:${pct}%;height:100%;background:${col};border-radius:999px;"></div>
-                            </div>`;
-                        cards.appendChild(card);
-                    });
-                }
-
-                // charts — every category keeps its fixed identity color
+                // charts — every category keeps its fixed identity color.
+                // The bar chart carries the amount + share of total on each bar
+                // (it replaced the old Category Totals tile card).
                 const barCtx = document.getElementById('spending-bar-chart');
                 if (barCtx) {
                     if (window.spendingBarChart) window.spendingBarChart.destroy();
+                    // Room to the right of the bars for the value labels;
+                    // narrow (phone) cards give up less plot width and rely on
+                    // the plugin's tuck-inside-the-bar fallback more often.
+                    const barWrap = barCtx.parentElement;
+                    const labelPad = (barWrap && barWrap.clientWidth && barWrap.clientWidth < 480) ? 72 : 118;
+                    const barValueLabels = {
+                        id: 'barValueLabels',
+                        afterDatasetsDraw(chart) {
+                            const meta = chart.getDatasetMeta(0);
+                            const vals = chart.data.datasets[0].data;
+                            const sum = vals.reduce((s, v) => s + v, 0);
+                            const c = chart.ctx;
+                            c.save();
+                            c.font = '700 11px -apple-system, "Segoe UI", Roboto, sans-serif';
+                            c.textBaseline = 'middle';
+                            meta.data.forEach((bar, i) => {
+                                const v = vals[i];
+                                const pct = sum ? Math.round((v / sum) * 100) : 0;
+                                let lbl; try { lbl = app.formatCurrencyLabel(v); } catch (e) { lbl = String(v); }
+                                const text = `${lbl} · ${pct}%`;
+                                const w = c.measureText(text).width;
+                                if (bar.x + 8 + w <= chart.width - 4) {
+                                    // beside the bar, in the reserved right padding
+                                    c.textAlign = 'left';
+                                    c.fillStyle = app.cssVar('--text-2');
+                                    c.fillText(text, bar.x + 8, bar.y);
+                                } else {
+                                    // bar runs nearly full width: tuck the label inside it
+                                    c.textAlign = 'right';
+                                    c.fillStyle = '#fff';
+                                    c.fillText(text, bar.x - 8, bar.y);
+                                }
+                            });
+                            c.restore();
+                        }
+                    };
                     window.spendingBarChart = new Chart(barCtx.getContext('2d'), {
                         type: 'bar',
                         data: {
@@ -5513,6 +5497,7 @@
                             indexAxis: 'y',
                             responsive: true,
                             maintainAspectRatio: false,
+                            layout: { padding: { right: labelPad } },
                             onClick: (evt, els) => { if (els && els.length) app.selectTrendCategory(categories[els[0].index]); },
                             onHover: (evt, els) => { if (evt.native) evt.native.target.style.cursor = els && els.length ? 'pointer' : 'default'; },
                             plugins: {
@@ -5520,7 +5505,10 @@
                                 tooltip: {
                                     callbacks: {
                                         label: function(ctx) {
-                                            return app.formatCurrencyLabel(ctx.dataset.data[ctx.dataIndex]);
+                                            const v = ctx.dataset.data[ctx.dataIndex];
+                                            const sum = ctx.dataset.data.reduce((s, x) => s + x, 0);
+                                            const pct = sum ? Math.round((v / sum) * 100) : 0;
+                                            return app.formatCurrencyLabel(v) + ' (' + pct + '%)';
                                         }
                                     }
                                 }
@@ -5529,7 +5517,8 @@
                                 x: { ticks: { color: app.cssVar('--text-muted') }, grid: { color: app.rgba('--grid-rgb',0.3) } },
                                 y: { ticks: { color: app.cssVar('--text-muted') }, grid: { color: app.rgba('--grid-rgb',0.3) } }
                             }
-                        }
+                        },
+                        plugins: [barValueLabels]
                     });
                 }
 
@@ -5601,7 +5590,7 @@
                 this.renderCategoryTrend(categories);
             },
 
-            // Chosen via a Category Totals tile or a bar in the horizontal chart;
+            // Chosen via a bar in the horizontal Category Spending chart;
             // null = automatic (the selected month's biggest category)
             trendCategory: null,
 
@@ -5627,10 +5616,7 @@
                 }
                 const cat = this.trendCategory || monthCategories[0] || null;
 
-                // reflect the active category on the tiles and in the title
-                document.querySelectorAll('#category-cards .cat-tile').forEach(t => {
-                    t.classList.toggle('trend-active', t.dataset.cat === cat);
-                });
+                // reflect the active category in the title
                 const titleEl = document.getElementById('category-trend-title');
                 if (titleEl) titleEl.textContent = cat ? `Category Comparison by Month — ${cat}` : 'Category Comparison by Month';
 
@@ -8169,15 +8155,39 @@
                 return `https://api.open-meteo.com/v1/forecast?latitude=${w.lat}&longitude=${w.lon}&current=temperature_2m,weather_code&daily=temperature_2m_max,precipitation_probability_max&timezone=auto&forecast_days=1`;
             },
 
+            // One news feed → parsed items, in whichever environment we're in.
+            // Electron fetches the RSS XML through its main-process proxy; a
+            // browser can't (BBC/Google News send no CORS headers), so there
+            // the rss2json.com relay (free, keyless, CORS-enabled) does the
+            // fetch and returns JSON. Either path failing = just no items;
+            // the briefing already degrades to its cached copy.
+            async fetchFeedItems(f) {
+                if (window.lifeManager && window.lifeManager.fetchText) {
+                    const r = await window.lifeManager.fetchText(f.url);
+                    return (r && r.ok) ? this.parseFeed(r.text, f.name) : [];
+                }
+                try {
+                    const res = await fetch('https://api.rss2json.com/v1/api.json?rss_url=' + encodeURIComponent(f.url));
+                    if (!res.ok) return [];
+                    const j = await res.json();
+                    if (j.status !== 'ok' || !Array.isArray(j.items)) return [];
+                    return j.items.map(it => ({
+                        title: (it.title || '').trim(),
+                        // pubDate arrives as "2026-08-19 07:28:06" in UTC
+                        date: it.pubDate ? Date.parse(it.pubDate.replace(' ', 'T') + 'Z') : null,
+                        url: it.link || '',
+                        source: f.name
+                    })).filter(it => it.title);
+                } catch (e) {
+                    return [];
+                }
+            },
+
             async reloadBriefing() {
                 const src = this._briefingSources;
-                // News RSS needs the Electron main-process proxy (the feeds
-                // don't allow cross-origin browser requests); the browser
-                // version still gets live weather, which is CORS-friendly.
-                const feeds = (window.lifeManager && window.lifeManager.fetchText) ? src.feeds : [];
                 const results = await Promise.all([
                     this.fetchTextAny(this.weatherUrl()),
-                    ...feeds.map(f => this.fetchTextAny(f.url))
+                    ...src.feeds.map(f => this.fetchFeedItems(f))
                 ]);
 
                 let weather = null;
@@ -8198,9 +8208,9 @@
                 // was published within the last 12 hours.
                 const cutoff = Date.now() - 12 * 60 * 60 * 1000;
                 const raw = [];
-                feeds.forEach((f, i) => {
-                    const r = results[i + 1];
-                    if (r && r.ok) raw.push(...this.parseFeed(r.text, f.name).filter(it => it.date && it.date >= cutoff));
+                src.feeds.forEach((f, i) => {
+                    const items = results[i + 1] || [];
+                    raw.push(...items.filter(it => it.date && it.date >= cutoff));
                 });
                 raw.sort((a, b) => b.date - a.date);
                 // Dedupe near-identical stories across feeds by their first words
@@ -8433,7 +8443,7 @@
             _dragCard: null,
 
             toggleLayoutEdit() {
-                if (this.isPhoneLayout()) { this.showToast('Card layouts are edited on the desktop — the phone arranges itself'); return; }
+                if (this.isCompactLayout()) { this.showToast('Card layouts are edited in a wide window — small screens arrange themselves'); return; }
                 this.layoutEditing = !this.layoutEditing;
                 document.body.classList.toggle('layout-editing', this.layoutEditing);
             },
@@ -8445,10 +8455,17 @@
                 try { return window.matchMedia('(max-width: 780px)').matches; } catch (e) { return false; }
             },
 
+            // Tablets (and narrow windows) also ignore the saved desktop
+            // geometry — boards reflow to two columns — so layout editing is
+            // desktop-width only.
+            isCompactLayout() {
+                try { return window.matchMedia('(max-width: 1200px)').matches; } catch (e) { return false; }
+            },
+
             // Settings → Edit layout: close the panel and start editing on a
             // customizable tab; the floating pill is the way out.
             startLayoutEditFromSettings() {
-                if (this.isPhoneLayout()) { this.showToast('Card layouts are edited on the desktop — the phone arranges itself'); return; }
+                if (this.isCompactLayout()) { this.showToast('Card layouts are edited in a wide window — small screens arrange themselves'); return; }
                 this.closeThemeModal();
                 if (!this.layoutEditing) this.toggleLayoutEdit();
                 const active = document.querySelector('.tab-content.active');
@@ -8559,11 +8576,14 @@
                 spending:  { sel: '.spend-grid', dataKey: 'spendGrid' },
                 more:      { sel: '.more-sections', dataKey: 'moreGrid' },
             },
-            HOME_GRID_COLS: 12,
-            HOME_GRID_ROW: 64,
+            /* 24 cols × 24px rows (gap 16): half-size steps vs the old 12×64
+               grid. Saved layouts from the old grid are doubled once on load
+               (see loadData's gridScale migration). */
+            HOME_GRID_COLS: 24,
+            HOME_GRID_ROW: 24,
             HOME_GRID_GAP: 16,
-            HOME_GRID_MIN_W: 2,
-            HOME_GRID_MIN_H: 2,
+            HOME_GRID_MIN_W: 3,
+            HOME_GRID_MIN_H: 3,
 
             applyFreeBoard(name) {
                 const cfg = this.FREE_BOARDS[name];
@@ -8582,7 +8602,7 @@
                 Object.values(hg).forEach(it => { maxY = Math.max(maxY, it.y + it.h); });
                 grid.querySelectorAll('[data-lm-key]').forEach(el => {
                     const k = el.dataset.lmKey;
-                    if (!hg[k]) { hg[k] = { x: 0, y: maxY, w: 6, h: 3 }; maxY += 3; }
+                    if (!hg[k]) { hg[k] = { x: 0, y: maxY, w: 12, h: 6 }; maxY += 6; }
                 });
                 this.renderBoardPreview(name, hg);
             },
@@ -8659,7 +8679,7 @@
                 if (!grid || this._boardBound[name]) return;
                 this._boardBound[name] = true;
                 grid.addEventListener('pointerdown', (e) => {
-                    if (!this.layoutEditing || this.isPhoneLayout() || e.button !== 0) return;
+                    if (!this.layoutEditing || this.isCompactLayout() || e.button !== 0) return;
                     const card = e.target.closest('[data-lm-key]');
                     if (!card || !grid.contains(card) || card.parentElement !== grid) return;
                     // First grab converts the default layout into grid coordinates
@@ -10464,6 +10484,19 @@
                         delete this.data.startingBalances;
                         delete this.data.moneyOwed;
                         delete this.data.moneyLent;
+                        // 2026-08: free-grid boards went from 12 to 24 columns
+                        // (and 64px to 24px rows) for finer resize steps. Old
+                        // saved layouts double once to keep the same footprint.
+                        if ((this.data.gridScale || 1) < 2) {
+                            ['homeGrid', 'dashGrid', 'spendGrid', 'moreGrid'].forEach(k => {
+                                const g = this.data[k];
+                                if (g) Object.values(g).forEach(it => { it.x *= 2; it.y *= 2; it.w *= 2; it.h *= 2; });
+                            });
+                            this.data.gridScale = 2;
+                        }
+                        // The Category Totals tile card was folded into the
+                        // Category Spending bar chart; drop its saved geometry.
+                        if (this.data.spendGrid) delete this.data.spendGrid.categories;
                     } catch (e) {
                         console.error('Error loading data:', e);
                     }
@@ -11156,6 +11189,80 @@
 -->
 <style>
     #mobile-nav, #mobile-more-sheet, #phone-launcher { display:none; }
+
+    /* ══ TABLET / NARROW WINDOW (781–1200px) ═══════════════════════════════
+       iPads and half-snapped desktop windows. The desktop chrome (icon rail,
+       fixed shell) still works here, but the boards were arranged for a wide
+       monitor: the saved free-grid geometry and the 6/12-column defaults
+       cram every card into a sliver. So in this range the boards ignore the
+       saved desktop layout and reflow into two even columns; charts take a
+       full row. Layout editing is desktop-width only (enforced in JS).
+       !important appears only where an inline style written by the layout
+       engine (grid-area) or a heavier desktop selector must be beaten. */
+    @media (min-width: 781px) and (max-width: 1200px) {
+        .topbar { margin:12px 16px 0; padding:12px 16px; gap:12px; }
+        /* rail inset follows the topbar margin so the two cards stay aligned */
+        .rail { padding:12px 10px 12px 16px; }
+        .content-area > .tab-content { padding:16px 16px 24px; }
+        .page-header { padding:16px 20px 14px; }
+
+        /* Every board: two even columns, natural row heights */
+        .home-grid, .home-grid.free-grid,
+        .dash-grid, .dash-grid.free-grid,
+        .spend-grid, .spend-grid.free-grid,
+        .more-sections, .more-sections.free-grid {
+            grid-template-columns:repeat(2, minmax(0, 1fr)) !important;
+            grid-template-areas:none !important;
+            grid-auto-rows:auto !important;
+            gap:14px;
+            align-items:stretch;
+        }
+        .home-grid > *, .dash-grid > *, .spend-grid > *, .more-sections > *,
+        .free-grid > [data-lm-key] {
+            grid-area:auto !important;
+            grid-column:auto !important;
+            grid-row:auto !important;
+        }
+        /* Charts and the news feed read better on a full row */
+        .dash-grid > .chart-container,
+        .spend-grid > .chart-container,
+        .home-grid > .home-area-news {
+            grid-column:1 / -1 !important;
+        }
+        /* Free-grid mode pins chart canvases to their card via flex:1; with
+           natural row heights that collapses them, so restore a fixed height */
+        .dash-grid.free-grid .chart-container > div[style*="height"],
+        .spend-grid.free-grid .chart-container > div[style*="height"] {
+            height:300px !important; flex:none;
+        }
+        /* The clock sizes itself by container-query units against a fixed
+           card height; rows are natural here, so give it fixed sizes */
+        .home-grid.free-grid .home-clock-card { container-type:normal; }
+        .home-clock, [data-home-layout="tower"] .home-clock,
+        .home-grid.free-grid .home-clock-card .home-clock { font-size:72px !important; letter-spacing:-2px !important; }
+        .home-clock-sec, [data-home-layout="tower"] .home-clock-sec,
+        .home-grid.free-grid .home-clock-card .home-clock-sec { font-size:28px !important; }
+        .home-grid.free-grid .home-clock-card .home-clock-sub { font-size:12px; }
+        .home-clock-card { text-align:center; }
+
+        /* Layout editing is a wide-window feature; hide its affordances if
+           the window narrows mid-edit (widen it again to keep editing) */
+        #layout-edit-pill { display:none !important; }
+        body.layout-editing .free-grid > [data-lm-key] { cursor:default; }
+        body.layout-editing .free-grid > [data-lm-key]::after { display:none; }
+
+        /* Toolbars and wide rows wrap instead of crushing their children */
+        .fin-toolbar { flex-wrap:wrap; }
+        .fin-toolbar > * { min-width:0; }
+        .home-hero { flex-wrap:wrap; gap:10px; }
+        .monthly-header { flex-wrap:wrap; gap:10px; }
+        .page-header { flex-wrap:wrap; gap:10px; }
+
+        /* Wide tables scroll sideways inside their own box */
+        .table-scroll-container, .fin-group-body {
+            overflow-x:auto; -webkit-overflow-scrolling:touch;
+        }
+    }
 
     @media (max-width: 780px) {
         /* ── 1. Let the page scroll ──────────────────────────────────────
